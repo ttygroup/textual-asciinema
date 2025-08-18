@@ -24,6 +24,6 @@ uvx textual-asciinema my-file.cast
 ## Also
 
 * [🎬 asciinema](https://bitplan.net/dev/python/tvmux) - terminal recorder
-* [🗔 ](https://bitplane.net/dev/python/bittty) - a pure python tty
+* [🗔  bittty](https://bitplane.net/dev/python/bittty) - a pure python tty
 * [🎥 tvmux](https://bitplane.net/dev/python/tvmux) - record your tmux projects
 

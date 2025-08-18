@@ -1,5 +1,5 @@
-site_name: example-python-project
-repo_url: https://github.com/bitplane/ienv/
+site_name: textual-asciinema
+repo_url: https://github.com/ttygroup/textual-asciinema
 theme:
   name: material
   palette:
