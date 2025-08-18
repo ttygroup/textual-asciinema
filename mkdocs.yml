@@ -19,4 +19,5 @@ markdown_extensions:
 
 nav:
  - 'index.md'
+ - 'pydoc.md'
  - 'LICENSE.md'
