@@ -76,14 +76,9 @@ class VideoFile:
 
         return frames
 
-    def seek_to_time(self, target_time: float) -> None:
-        """Seek to a specific timestamp (simple implementation - restart from beginning)."""
-        if target_time < self._current_time:
-            # Seeking backwards - restart from beginning
-            self._initialize_file()
-
-        # Skip frames until we reach target time
-        self.get_frames_until(target_time)
+    def restart(self) -> None:
+        """Rewind to the first frame (the engine replays from here on backward seeks)."""
+        self._initialize_file()
 
     def cleanup(self) -> None:
         """Clean up resources."""

@@ -6,20 +6,18 @@ import time
 from typing import Callable, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from textual_tty import TextualTerminal
+    from textual_tty import Monitor
 
-from .parser import CastParser
+from .parser import CastParser, CastFrame
 from .video_file import VideoFile
 
-# Set up debug logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
 class PlaybackEngine:
     """Video player that handles timing, UI updates, and user controls."""
 
-    def __init__(self, parser: CastParser, terminal: "TextualTerminal"):
+    def __init__(self, parser: CastParser, terminal: "Monitor"):
         self.parser = parser
         self.terminal = terminal
 
@@ -37,6 +35,14 @@ class PlaybackEngine:
 
         # Playback task
         self._playback_task: Optional[asyncio.Task] = None
+
+    def _apply_frame(self, frame: CastFrame) -> None:
+        """Apply one cast frame to the monitor: output feeds, resizes reflow."""
+        if frame.stream_type == "o":
+            self.terminal.feed(frame.data)
+        elif frame.stream_type == "r":
+            cols, rows = map(int, frame.data.split("x"))
+            self.terminal.board.resize(cols, rows)
 
     async def play(self) -> None:
         """Start or resume playback."""
@@ -71,17 +77,25 @@ class PlaybackEngine:
         self.speed = speed
 
     async def seek_to(self, timestamp: float) -> None:
-        """Seek to a specific timestamp."""
+        """Seek to a timestamp, rebuilding the screen by replaying the cast.
+
+        Backward seeks reset the board and replay from the top; forward seeks
+        replay just the skipped frames. The parser is fast enough that replay
+        is the honest implementation — the screen always shows true mid-cast
+        state instead of going blank until the next output.
+        """
         timestamp = max(0.0, min(timestamp, self.parser.duration))
 
         was_playing = self.is_playing
         await self.pause()
 
-        # Clear terminal and seek video file
-        self.terminal.clear_screen()
-        self.video_file.seek_to_time(timestamp)
+        if timestamp < self.current_time:
+            self.terminal.board.reset()
+            self.video_file.restart()
 
-        # Update UI time
+        for frame in self.video_file.get_frames_until(timestamp):
+            self._apply_frame(frame)
+
         self.current_time = timestamp
 
         if self.on_time_update:
@@ -91,7 +105,7 @@ class PlaybackEngine:
             await self.play()
 
     async def _playback_loop(self) -> None:
-        """Simple video player loop - streams frames to terminal."""
+        """Simple video player loop - streams frames to the monitor."""
         try:
             frame_time = 0.016  # Target 60fps
             last_render_time = 0.0
@@ -110,27 +124,8 @@ class PlaybackEngine:
                 # Skip frames if we're falling behind (only render at target framerate)
                 time_since_last_render = current_real_time - last_render_time
                 if time_since_last_render >= frame_time:
-                    # Get frames up to current time and feed to terminal
-                    frames = self.video_file.get_frames_until(self.current_time)
-                    has_output = False
-                    for frame in frames:
-                        if frame.stream_type == "o":
-                            # Feed output data to terminal
-                            self.terminal.parser.feed(frame.data)
-                            has_output = True
-                        elif frame.stream_type == "r":
-                            # Handle resize events
-                            try:
-                                cols, rows = map(int, frame.data.split("x"))
-                                logger.debug(f"Resize event at {frame.timestamp:.3f}: {cols}x{rows}")
-                                self.terminal.resize(cols, rows)
-                                has_output = True
-                            except (ValueError, AttributeError) as e:
-                                logger.warning(f"Failed to parse resize data '{frame.data}': {e}")
-
-                    # Trigger display update if we had any output
-                    if has_output:
-                        await self.terminal._update_display()
+                    for frame in self.video_file.get_frames_until(self.current_time):
+                        self._apply_frame(frame)
 
                     last_render_time = current_real_time
 
@@ -138,8 +133,14 @@ class PlaybackEngine:
                     if self.on_time_update:
                         self.on_time_update(self.current_time)
 
-                # Check if we've reached the end
+                # At the end: flush the remaining frames (the tick that crosses the
+                # duration may have skipped its render slot) and stop.
                 if self.current_time >= self.parser.duration:
+                    self.current_time = self.parser.duration
+                    for frame in self.video_file.get_frames_until(self.current_time):
+                        self._apply_frame(frame)
+                    if self.on_time_update:
+                        self.on_time_update(self.current_time)
                     self.is_playing = False
                     break
 
@@ -157,9 +158,8 @@ class PlaybackEngine:
         self.current_time = 0.0
         self.last_update_time = 0.0
 
-        # Clear terminal and reset video file
-        self.terminal.clear_screen()
-        self.video_file.seek_to_time(0.0)
+        self.terminal.board.reset()
+        self.video_file.restart()
 
         if self.on_time_update:
             self.on_time_update(self.current_time)

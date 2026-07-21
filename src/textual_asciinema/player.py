@@ -4,25 +4,11 @@ from pathlib import Path
 from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.widget import Widget
-from textual_tty import TextualTerminal
+from textual_tty import Monitor
 
 from .parser import CastParser
 from .engine import PlaybackEngine
 from .controls import PlayerControls
-
-
-class PlaybackTerminal(TextualTerminal):
-    """TextualTerminal configured for playback-only mode."""
-
-    def __init__(self, width: int, height: int, **kwargs):
-        super().__init__(**kwargs)
-        # Initialize with proper dimensions
-        self.resize(width, height)
-
-    async def start_process(self) -> None:
-        """Override to prevent starting a shell process."""
-        # Don't start any process - we'll feed data manually for playback
-        pass
 
 
 class AsciinemaPlayer(Widget):
@@ -110,8 +96,9 @@ class AsciinemaPlayer(Widget):
         """Compose the player with terminal and controls."""
         header = self.parser.header
 
-        # Create TextualTerminal for proper ANSI rendering
-        self.terminal = PlaybackTerminal(width=header.width, height=header.height, id="asciinema-terminal")
+        # A Monitor is a display-only view of a bittty board: no shell, feed()-driven,
+        # and it sizes itself to the cast's grid.
+        self.terminal = Monitor(size=(header.width, header.height), id="asciinema-terminal")
 
         # Create playback engine with terminal for direct manipulation
         self.engine = PlaybackEngine(self.parser, self.terminal)
@@ -132,16 +119,8 @@ class AsciinemaPlayer(Widget):
                 yield self.terminal
             yield self.controls
 
-    def on_mount(self) -> None:
-        """Initialize the player when mounted."""
-        # Don't start the terminal process - we're in playback mode
-        pass
-
     def _update_display_and_time(self, current_time: float) -> None:
-        """Update display terminal from video file and notify controls."""
-        # Engine has already triggered the terminal display update
-
-        # Update time controls
+        """The engine advanced: update the time controls (the monitor paints itself)."""
         self.controls.update_time(current_time)
 
     def _handle_play_pause(self) -> None:
